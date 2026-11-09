@@ -1,0 +1,530 @@
+[
+  {
+    "updatedAt": "2026-11-09T16:50:37.924Z",
+    "createdAt": "2026-11-09T16:50:37.924Z",
+    "id": "5bwAbY62VodbcSDQ",
+    "name": "Task 2 - Hacker News Morning Brief (Email)",
+    "description": null,
+    "active": false,
+    "isArchived": false,
+    "nodes": [
+      {
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "morning-brief",
+          "responseMode": "onReceived",
+          "options": {}
+        },
+        "id": "bdb6e239-97c3-4552-8fe8-729c308e5fd0",
+        "name": "Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2.1,
+        "position": [
+          0,
+          80
+        ],
+        "webhookId": "e1214938-a7ed-44f2-bf5c-7ddd4b3f9529"
+      },
+      {
+        "parameters": {
+          "method": "GET",
+          "url": "https://hn.algolia.com/api/v1/search?tags=front_page&hitsPerPage=50",
+          "options": {
+            "timeout": 15000,
+            "response": {
+              "response": {
+                "responseFormat": "json"
+              }
+            }
+          }
+        },
+        "id": "1dd5a3ff-6261-4334-9d84-190fde057e46",
+        "name": "Fetch HN Front Page",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.5,
+        "position": [
+          260,
+          80
+        ],
+        "onError": "continueErrorOutput"
+      },
+      {
+        "parameters": {
+          "mode": "runOnceForAllItems",
+          "language": "javaScript",
+          "jsCode": "const response = $input.first().json;\nconst hits = Array.isArray(response.hits) ? response.hits : [];\nconst stories = hits.map((hit) => {\n  const id = String(hit.objectID ?? '');\n  return {\n    id,\n    title: hit.title || hit.story_title || '(untitled)',\n    points: Number(hit.points ?? 0),\n    author: hit.author || 'unknown',\n    url: hit.url || `https://news.ycombinator.com/item?id=${id}`,\n    createdAt: hit.created_at || '',\n    comments: Number(hit.num_comments ?? 0),\n  };\n}).filter((story) => story.id && story.title)\n  .sort((a, b) => b.points - a.points)\n  .slice(0, 5);\nif (stories.length === 0) throw new Error('The Hacker News front-page search returned no stories.');\nreturn stories.map((story) => ({ json: story }));"
+        },
+        "id": "61992ee6-0445-41d7-9282-c370ea1709cb",
+        "name": "Sort and Keep Top 5",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          500,
+          80
+        ],
+        "onError": "continueErrorOutput"
+      },
+      {
+        "parameters": {
+          "method": "GET",
+          "url": "={{ 'https://hacker-news.firebaseio.com/v0/item/' + $json.id + '.json' }}",
+          "options": {
+            "timeout": 15000,
+            "response": {
+              "response": {
+                "responseFormat": "json"
+              }
+            }
+          }
+        },
+        "id": "50c74c27-0318-4dfd-a580-d4d03e92ed9f",
+        "name": "Enrich Top 5 with Item Details",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.5,
+        "position": [
+          760,
+          80
+        ],
+        "onError": "continueErrorOutput"
+      },
+      {
+        "parameters": {
+          "mode": "runOnceForAllItems",
+          "language": "javaScript",
+          "jsCode": "const rows = $input.all().map((item) => item.json).filter((story) => story && story.id);\nif (rows.length === 0) throw new Error('No enriched Hacker News stories were available.');\nconst stories = rows.sort((a, b) => Number(b.score ?? 0) - Number(a.score ?? 0)).slice(0, 5).map((story) => ({\n  id: story.id,\n  title: story.title || '(untitled)',\n  points: Number(story.score ?? 0),\n  author: story.by || 'unknown',\n  comments: Number(story.descendants ?? 0),\n  url: story.url || `https://news.ycombinator.com/item?id=${story.id}`,\n}));\nconst trigger = $('Webhook').first().json;\nconst body = trigger.body && typeof trigger.body === 'object' ? trigger.body : {};\nconst threshold = Number(body.threshold ?? 100);\nconst dryRun = body.dryRun === true || body.dryRun === 'true';\nconst topScore = stories[0].points;\nconst storyLines = stories.map((story, index) => `${index + 1}. ${story.title}\\n   ${story.points} points | ${story.comments} comments | by ${story.author}\\n   ${story.url}`);\nconst message = `Hacker News Morning Brief - Top 5 Front Page Stories\\n\\n${storyLines.join('\\n\\n')}`;\nreturn [{ json: { stories, topScore, threshold, dryRun, message } }];"
+        },
+        "id": "2d1a8604-408f-4984-bd8a-a6bb6f02f2db",
+        "name": "Build Digest and Test Settings",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1010,
+          80
+        ],
+        "onError": "continueErrorOutput"
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "id": "101bf6e8-fde7-436c-8880-fe6c53846a22",
+                "leftValue": "={{ $json.topScore }}",
+                "rightValue": "={{ $json.threshold }}",
+                "operator": {
+                  "type": "number",
+                  "operation": "gte"
+                }
+              }
+            ],
+            "combinator": "and"
+          }
+        },
+        "id": "8ab3a329-68ec-41f7-a24c-441da6a55051",
+        "name": "IF Top Story Meets Threshold",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          1260,
+          80
+        ]
+      },
+      {
+        "parameters": {
+          "mode": "runOnceForAllItems",
+          "language": "javaScript",
+          "jsCode": "const brief = $input.first().json;\nreturn [{ json: { ...brief, message: `HIGH ACTIVITY - top story has ${brief.topScore} points (threshold ${brief.threshold}).\\n\\n${brief.message}` } }];"
+        },
+        "id": "1cc77cb6-261d-4ee7-8682-69774ee5da2c",
+        "name": "Compose High Activity Digest",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1510,
+          -40
+        ]
+      },
+      {
+        "parameters": {
+          "mode": "runOnceForAllItems",
+          "language": "javaScript",
+          "jsCode": "const brief = $input.first().json;\nreturn [{ json: { ...brief, message: `Daily brief - top story is below the ${brief.threshold}-point threshold.\\n\\n${brief.message}` } }];"
+        },
+        "id": "03c10c13-f9f7-4e08-acc8-9a997e5087d1",
+        "name": "Compose Standard Digest",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1510,
+          200
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "id": "f861c89c-9a90-4c89-a4ff-4b3423cd34e2",
+                "leftValue": "={{ $json.dryRun }}",
+                "rightValue": true,
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true"
+                }
+              }
+            ],
+            "combinator": "and"
+          }
+        },
+        "id": "3d9b9e54-7935-46bc-8ede-70f5236fdcda",
+        "name": "IF Dry Run - High Branch",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          1760,
+          -40
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "id": "1a9b7847-bd4f-40bd-ab2c-b3d194643e46",
+                "leftValue": "={{ $json.dryRun }}",
+                "rightValue": true,
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true"
+                }
+              }
+            ],
+            "combinator": "and"
+          }
+        },
+        "id": "3d38f5a0-1965-42f6-ab1c-85043ac5ceda",
+        "name": "IF Dry Run - Standard Branch",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          1760,
+          200
+        ]
+      },
+      {
+        "parameters": {
+          "mode": "runOnceForAllItems",
+          "language": "javaScript",
+          "jsCode": "const item = $input.first().json;\nreturn [{ json: { preview: true, branch: 'high-activity', threshold: item.threshold, topScore: item.topScore, message: item.message } }];"
+        },
+        "id": "163b053b-b49d-4a68-a0b1-f89ed8380218",
+        "name": "Dry Run Preview - High",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2000,
+          -170
+        ]
+      },
+      {
+        "parameters": {
+          "mode": "runOnceForAllItems",
+          "language": "javaScript",
+          "jsCode": "const item = $input.first().json;\nreturn [{ json: { preview: true, branch: 'standard', threshold: item.threshold, topScore: item.topScore, message: item.message } }];"
+        },
+        "id": "30d1d520-99b0-4e04-9f30-1989392e5b28",
+        "name": "Dry Run Preview - Standard",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2000,
+          70
+        ]
+      },
+      {
+        "parameters": {
+          "mode": "runOnceForAllItems",
+          "language": "javaScript",
+          "jsCode": "const failures = $input.all().map((item) => item.json);\nconst details = failures.map((failure) => failure.error?.message || failure.message || failure.description || JSON.stringify(failure)).join(' | ');\nreturn [{ json: { logged: true, failureCount: failures.length, apiError: details.slice(0, 1500), message: `Morning Brief API failure: ${details.slice(0, 1500)}` } }];"
+        },
+        "id": "cc2b467b-3384-4b10-88c2-2b8259aec11e",
+        "name": "Log API Failure",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1510,
+          450
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "send",
+          "resource": "email",
+          "fromEmail": "={{ $('Webhook').first().json.body.fromEmail }}",
+          "toEmail": "={{ $('Webhook').first().json.body.toEmail }}",
+          "subject": "Hacker News Morning Brief - High Activity",
+          "emailFormat": "text",
+          "text": "={{ $json.message }}",
+          "options": {
+            "appendAttribution": false
+          }
+        },
+        "id": "0139136b-3f47-4fd3-8e11-2fd21b464d61",
+        "name": "Send Email - High Activity Digest",
+        "type": "n8n-nodes-base.emailSend",
+        "typeVersion": 2.1,
+        "position": [
+          2000,
+          -10
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "send",
+          "resource": "email",
+          "fromEmail": "={{ $('Webhook').first().json.body.fromEmail }}",
+          "toEmail": "={{ $('Webhook').first().json.body.toEmail }}",
+          "subject": "Hacker News Morning Brief - Daily",
+          "emailFormat": "text",
+          "text": "={{ $json.message }}",
+          "options": {
+            "appendAttribution": false
+          }
+        },
+        "id": "40feb87e-20d7-49ef-932a-2c156a29df8f",
+        "name": "Send Email - Standard Digest",
+        "type": "n8n-nodes-base.emailSend",
+        "typeVersion": 2.1,
+        "position": [
+          2000,
+          230
+        ]
+      }
+    ],
+    "connections": {
+      "Webhook": {
+        "main": [
+          [
+            {
+              "node": "Fetch HN Front Page",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Fetch HN Front Page": {
+        "main": [
+          [
+            {
+              "node": "Sort and Keep Top 5",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Log API Failure",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Sort and Keep Top 5": {
+        "main": [
+          [
+            {
+              "node": "Enrich Top 5 with Item Details",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Log API Failure",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Enrich Top 5 with Item Details": {
+        "main": [
+          [
+            {
+              "node": "Build Digest and Test Settings",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Log API Failure",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build Digest and Test Settings": {
+        "main": [
+          [
+            {
+              "node": "IF Top Story Meets Threshold",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Log API Failure",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "IF Top Story Meets Threshold": {
+        "main": [
+          [
+            {
+              "node": "Compose High Activity Digest",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Compose Standard Digest",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Compose High Activity Digest": {
+        "main": [
+          [
+            {
+              "node": "IF Dry Run - High Branch",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Compose Standard Digest": {
+        "main": [
+          [
+            {
+              "node": "IF Dry Run - Standard Branch",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "IF Dry Run - High Branch": {
+        "main": [
+          [
+            {
+              "node": "Dry Run Preview - High",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Send Email - High Activity Digest",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "IF Dry Run - Standard Branch": {
+        "main": [
+          [
+            {
+              "node": "Dry Run Preview - Standard",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Send Email - Standard Digest",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Log API Failure": {
+        "main": [
+          []
+        ]
+      }
+    },
+    "settings": {
+      "executionOrder": "v1",
+      "timezone": "Asia/Calcutta",
+      "saveExecutionProgress": true
+    },
+    "staticData": null,
+    "meta": {
+      "templateCredsSetupCompleted": false
+    },
+    "nodeGroups": [],
+    "pinData": {},
+    "versionId": "7e9c754c-dddf-43b6-91ac-add1ac4061f6",
+    "activeVersionId": null,
+    "versionCounter": 2,
+    "triggerCount": 0,
+    "sourceWorkflowId": null,
+    "tags": [],
+    "shared": [
+      {
+        "updatedAt": "2026-11-09T16:50:37.924Z",
+        "createdAt": "2026-11-09T16:50:37.924Z",
+        "role": "workflow:owner",
+        "workflowId": "5bwAbY62VodbcSDQ",
+        "projectId": "KTd63hCPXJJPPxIU",
+        "project": {
+          "updatedAt": "2026-11-09T16:31:44.053Z",
+          "createdAt": "2026-11-09T16:29:59.293Z",
+          "id": "KTd63hCPXJJPPxIU",
+          "name": "QA Task2 <qa.task2@example.com>",
+          "type": "personal",
+          "icon": null,
+          "description": null,
+          "customTelemetryTags": [],
+          "creatorId": "81ff20de-0219-4ac0-be5d-05b61a60a7aa"
+        }
+      }
+    ],
+    "versionMetadata": {
+      "name": null,
+      "description": null
+    }
+  }
+]
