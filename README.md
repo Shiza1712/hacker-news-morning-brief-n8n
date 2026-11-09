@@ -24,3 +24,7 @@ The SMTP secret stays in the n8n credential; it is not stored in this workflow e
 Click **Execute workflow**, then POST the JSON above to the Webhook Test URL n8n displays. `dryRun:true` routes the composed email to a preview node without sending. After selecting the SMTP credential, test delivery with `dryRun:false`. To use it continuously, publish the workflow and POST to the production URL ending in `/webhook/morning-brief`.
 
 The email workflow was successfully run locally on **9 Nov 2026** with a dry-run request; it fetched, transformed, enriched and previewed the brief. No email was sent during that run.
+
+## Bonus - uptime monitor
+
+The optional bonus checks the Task 1 Conduit demo every five minutes and emails only when it does not return HTTP 200. See [setup and behavior](Bonus_UptimeMonitor_README.md), [workflow export](Bonus_UptimeMonitor_Siddiqui_Anabiya.json), and the [flow overview](screenshots/Bonus_UptimeMonitor_Flow_Overview.png). SMTP credentials are configured in n8n and are not included in the export.
