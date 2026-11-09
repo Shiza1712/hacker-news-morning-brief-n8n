@@ -1,4 +1,4 @@
-# Task 2 — Hacker News Morning Brief (Email)
+#  — Hacker News Morning Brief (Email)
 
 **Workflow:** `Task 2 - Hacker News Morning Brief (Email)`  
 **Export:** `Task2_Workflow_Siddiqui_Anabiya.json`
